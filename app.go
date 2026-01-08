@@ -125,6 +125,107 @@ func (a *App) GetSpotifyMetadata(req SpotifyMetadataRequest) (string, error) {
 	return string(jsonData), nil
 }
 
+// GetISRCRequest represents a request to get ISRC for a track
+type GetISRCRequest struct {
+	SpotifyID    string `json:"spotify_id"`
+	DatabasePath string `json:"database_path"` // Optional: path to local database
+	SpotifyURL   string `json:"spotify_url"`   // Fallback: Spotify URL if database lookup fails
+}
+
+// GetISRCResponse represents the response with ISRC data
+type GetISRCResponse struct {
+	ISRC      string `json:"isrc"`
+	Source    string `json:"source"`     // "database" or "spotify-api"
+	TrackData string `json:"track_data"` // Full track metadata JSON (only if from API)
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// GetISRCWithFallback attempts to get ISRC from database first, then falls back to Spotify API
+func (a *App) GetISRCWithFallback(req GetISRCRequest) (GetISRCResponse, error) {
+	if req.SpotifyID == "" {
+		return GetISRCResponse{Success: false, Error: "spotify_id is required"}, fmt.Errorf("spotify_id is required")
+	}
+
+	// Step 1: Try database first if path is provided
+	if req.DatabasePath != "" {
+		fmt.Printf("[GetISRCWithFallback] Checking database for Spotify ID: %s\n", req.SpotifyID)
+		isrc, err := backend.GetISRCFromDatabase(req.DatabasePath, req.SpotifyID)
+
+		if err != nil {
+			// Database error (file not found, connection error, etc.) - log but continue to API
+			fmt.Printf("[GetISRCWithFallback] Database error (will fallback to API): %v\n", err)
+		} else if isrc != "" {
+			// Found in database!
+			fmt.Printf("[GetISRCWithFallback] ✓ ISRC found in database: %s\n", isrc)
+			return GetISRCResponse{
+				ISRC:    isrc,
+				Source:  "database",
+				Success: true,
+			}, nil
+		} else {
+			fmt.Printf("[GetISRCWithFallback] ISRC not found in database, falling back to Spotify API\n")
+		}
+	}
+
+	// Step 2: Fallback to Spotify API
+	fmt.Printf("[GetISRCWithFallback] Querying Spotify API for: %s\n", req.SpotifyID)
+
+	spotifyURL := req.SpotifyURL
+	if spotifyURL == "" {
+		spotifyURL = fmt.Sprintf("https://open.spotify.com/track/%s", req.SpotifyID)
+	}
+
+	metadataJson, err := a.GetSpotifyMetadata(SpotifyMetadataRequest{
+		URL:     spotifyURL,
+		Batch:   false,
+		Delay:   0,
+		Timeout: 30,
+	})
+
+	if err != nil {
+		return GetISRCResponse{Success: false, Error: fmt.Sprintf("failed to fetch from Spotify API: %v", err)}, err
+	}
+
+	// Parse response to extract ISRC
+	var metadata map[string]interface{}
+	if err := json.Unmarshal([]byte(metadataJson), &metadata); err != nil {
+		return GetISRCResponse{Success: false, Error: "failed to parse Spotify response"}, err
+	}
+
+	track, ok := metadata["track"].(map[string]interface{})
+	if !ok {
+		return GetISRCResponse{Success: false, Error: "invalid Spotify response format"}, fmt.Errorf("invalid response format")
+	}
+
+	isrc, ok := track["isrc"].(string)
+	if !ok || isrc == "" {
+		return GetISRCResponse{Success: false, Error: "no ISRC found in Spotify response"}, fmt.Errorf("no ISRC found")
+	}
+
+	fmt.Printf("[GetISRCWithFallback] ✓ ISRC found via Spotify API: %s\n", isrc)
+	return GetISRCResponse{
+		ISRC:      isrc,
+		Source:    "spotify-api",
+		TrackData: metadataJson, // Return full metadata for use by caller
+		Success:   true,
+	}, nil
+}
+
+// TestDatabaseConnection tests if a database file is accessible and properly formatted
+func (a *App) TestDatabaseConnection(databasePath string) (string, error) {
+	if databasePath == "" {
+		return "", fmt.Errorf("database path is required")
+	}
+
+	err := backend.TestDatabaseConnection(databasePath)
+	if err != nil {
+		return fmt.Sprintf("Database connection failed: %v", err), err
+	}
+
+	return "Database connection successful!", nil
+}
+
 // SpotifySearchRequest represents the request structure for searching Spotify
 type SpotifySearchRequest struct {
 	Query string `json:"query"`
@@ -452,6 +553,11 @@ func (a *App) SelectFolder(defaultPath string) (string, error) {
 // SelectFile opens a file selection dialog and returns the selected file path
 func (a *App) SelectFile() (string, error) {
 	return backend.SelectFileDialog(a.ctx)
+}
+
+// SelectDatabaseFile opens a database file selection dialog and returns the selected file path
+func (a *App) SelectDatabaseFile() (string, error) {
+	return backend.SelectDatabaseFileDialog(a.ctx)
 }
 
 // GetDefaults returns the default configuration
@@ -803,7 +909,7 @@ func (a *App) ReadImageAsBase64(filePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	ext := strings.ToLower(filepath.Ext(filePath))
 	var mimeType string
 	switch ext {
@@ -818,7 +924,7 @@ func (a *App) ReadImageAsBase64(filePath string) (string, error) {
 	default:
 		mimeType = "image/jpeg"
 	}
-	
+
 	encoded := base64.StdEncoding.EncodeToString(content)
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
 }
@@ -858,4 +964,170 @@ func (a *App) CheckFilesExistence(outputDir string, tracks []CheckFileExistenceR
 // SkipDownloadItem marks a download item as skipped (file already exists)
 func (a *App) SkipDownloadItem(itemID, filePath string) {
 	backend.SkipDownloadItem(itemID, filePath)
+}
+
+// SelectCSVFile opens a file dialog to select a CSV file
+func (a *App) SelectCSVFile() (string, error) {
+	return backend.SelectCSVFileDialog(a.ctx)
+}
+
+// SelectMultipleCSVFiles opens a file dialog to select multiple CSV files
+func (a *App) SelectMultipleCSVFiles() ([]string, error) {
+	return backend.SelectMultipleCSVFiles(a.ctx)
+}
+
+// ParseCSVPlaylist parses a CSV playlist file and returns tracks
+func (a *App) ParseCSVPlaylist(filePath string) (backend.CSVParseResult, error) {
+	if filePath == "" {
+		return backend.CSVParseResult{
+			Success: false,
+			Error:   "File path is required",
+		}, fmt.Errorf("file path is required")
+	}
+
+	fmt.Printf("\n========== CSV PARSE START ==========\n")
+	fmt.Printf("File path: %s\n", filePath)
+
+	tracks, err := backend.ParseCSVPlaylist(filePath)
+	if err != nil {
+		fmt.Printf("Parse error: %v\n", err)
+		fmt.Printf("========== CSV PARSE END (FAILED) ==========\n\n")
+		return backend.CSVParseResult{
+			Success:    false,
+			TrackCount: 0,
+			Error:      err.Error(),
+		}, err
+	}
+
+	fmt.Printf("Parse success: %d tracks\n", len(tracks))
+	fmt.Printf("========== CSV PARSE END (SUCCESS) ==========\n\n")
+
+	return backend.CSVParseResult{
+		Success:    true,
+		TrackCount: len(tracks),
+		Tracks:     tracks,
+	}, nil
+}
+
+// ParseMultipleCSVFiles parses multiple CSV playlist files and returns batch results
+func (a *App) ParseMultipleCSVFiles(filePaths []string) (backend.BatchCSVParseResult, error) {
+	if len(filePaths) == 0 {
+		return backend.BatchCSVParseResult{
+			Success: false,
+			Error:   "No file paths provided",
+		}, fmt.Errorf("no file paths provided")
+	}
+
+	fmt.Printf("\n========== BATCH CSV PARSE START ==========\n")
+	fmt.Printf("Number of files: %d\n", len(filePaths))
+
+	result := backend.ParseMultipleCSVFiles(filePaths)
+
+	fmt.Printf("========== BATCH CSV PARSE END ==========\n\n")
+
+	if !result.Success {
+		return result, fmt.Errorf("%s", result.Error)
+	}
+
+	return result, nil
+}
+
+// CheckTrackExistsRequest represents a request to check if a track file already exists
+type CheckTrackExistsRequest struct {
+	TrackName      string `json:"track_name"`
+	ArtistName     string `json:"artist_name"`
+	AlbumName      string `json:"album_name"`
+	OutputDir      string `json:"output_dir"`
+	FilenameFormat string `json:"filename_format"`
+	TrackNumber    bool   `json:"track_number"`
+	Position       int    `json:"position"`
+}
+
+// CheckTrackExistsResponse represents the response from track existence check
+type CheckTrackExistsResponse struct {
+	Exists   bool   `json:"exists"`
+	FilePath string `json:"file_path,omitempty"`
+}
+
+// CheckTrackExists checks if a track file already exists without downloading
+func (a *App) CheckTrackExists(req CheckTrackExistsRequest) (CheckTrackExistsResponse, error) {
+	if req.OutputDir == "" {
+		return CheckTrackExistsResponse{Exists: false}, fmt.Errorf("output directory is required")
+	}
+
+	if req.TrackName == "" || req.ArtistName == "" {
+		return CheckTrackExistsResponse{Exists: false}, fmt.Errorf("track name and artist name are required")
+	}
+
+	// Normalize path
+	outputDir := backend.NormalizePath(req.OutputDir)
+
+	// Set default filename format if not provided
+	if req.FilenameFormat == "" {
+		req.FilenameFormat = "title-artist"
+	}
+
+	// Build expected filename
+	expectedFilename := backend.BuildExpectedFilename(
+		req.TrackName,
+		req.ArtistName,
+		req.AlbumName,
+		"", // albumArtist - not needed for basic check
+		"", // releaseDate - not needed for basic check
+		req.FilenameFormat,
+		req.TrackNumber,
+		req.Position,
+		0, // discNumber - not needed for basic check
+		false,
+	)
+
+	expectedPath := filepath.Join(outputDir, expectedFilename)
+
+	// Check if file exists and has reasonable size (> 100KB)
+	if fileInfo, err := os.Stat(expectedPath); err == nil && fileInfo.Size() > 100*1024 {
+		return CheckTrackExistsResponse{
+			Exists:   true,
+			FilePath: expectedPath,
+		}, nil
+	}
+
+	return CheckTrackExistsResponse{Exists: false}, nil
+}
+
+// VerifyLibraryCompleteness verifies that all tracks in a directory have covers and/or lyrics
+func (a *App) VerifyLibraryCompleteness(req backend.LibraryVerificationRequest) (*backend.LibraryVerificationResponse, error) {
+	fmt.Println("\n========== LIBRARY VERIFICATION START ==========")
+
+	if req.ScanPath == "" {
+		return &backend.LibraryVerificationResponse{
+			Success: false,
+			Error:   "Scan path is required",
+		}, fmt.Errorf("scan path is required")
+	}
+
+	response, err := backend.VerifyLibrary(req)
+
+	if err != nil {
+		fmt.Printf("========== LIBRARY VERIFICATION END (FAILED) ==========\n\n")
+		return response, err
+	}
+
+	fmt.Printf("========== LIBRARY VERIFICATION END (SUCCESS) ==========\n\n")
+	return response, nil
+}
+
+// CSVBatchDownloadRequest represents a request to download tracks from a CSV file
+type CSVBatchDownloadRequest struct {
+	CSVFilePath string `json:"csv_file_path"`
+	OutputDir   string `json:"output_dir"`
+}
+
+// CSVBatchDownloadResponse represents the response from CSV batch download
+type CSVBatchDownloadResponse struct {
+	Success       bool   `json:"success"`
+	Message       string `json:"message"`
+	TotalTracks   int    `json:"total_tracks"`
+	QueuedTracks  int    `json:"queued_tracks"`
+	SkippedTracks int    `json:"skipped_tracks"`
+	Error         string `json:"error,omitempty"`
 }

@@ -30,6 +30,7 @@ import { DownloadProgressToast } from "@/components/DownloadProgressToast";
 import { AudioAnalysisPage } from "@/components/AudioAnalysisPage";
 import { AudioConverterPage } from "@/components/AudioConverterPage";
 import { FileManagerPage } from "@/components/FileManagerPage";
+import { CSVImportPage } from "@/components/CSVImportPage";
 import { SettingsPage } from "@/components/SettingsPage";
 import { DebugLoggerPage } from "@/components/DebugLoggerPage";
 import type { HistoryItem } from "@/components/FetchHistory";
@@ -357,14 +358,14 @@ function App() {
           onToggleSelectAll={toggleSelectAll}
           onDownloadTrack={download.handleDownloadTrack}
           onDownloadLyrics={(spotifyId, name, artists, albumName, _folderName, _isArtistDiscography, position, albumArtist, releaseDate, discNumber) =>
-            lyrics.handleDownloadLyrics(spotifyId, name, artists, albumName, album_info.name, position, albumArtist, releaseDate, discNumber)
+            lyrics.handleDownloadLyrics(spotifyId, name, artists, albumName, album_info.name, position, albumArtist, releaseDate, discNumber, true)
           }
           onDownloadCover={(coverUrl, trackName, artistName, albumName, _folderName, _isArtistDiscography, position, trackId, albumArtist, releaseDate, discNumber) =>
-            cover.handleDownloadCover(coverUrl, trackName, artistName, albumName, album_info.name, position, trackId, albumArtist, releaseDate, discNumber)
+            cover.handleDownloadCover(coverUrl, trackName, artistName, albumName, album_info.name, position, trackId, albumArtist, releaseDate, discNumber, true)
           }
           onCheckAvailability={availability.checkAvailability}
-          onDownloadAllLyrics={() => lyrics.handleDownloadAllLyrics(track_list, album_info.name)}
-          onDownloadAllCovers={() => cover.handleDownloadAllCovers(track_list, album_info.name)}
+          onDownloadAllLyrics={() => lyrics.handleDownloadAllLyrics(track_list, album_info.name, undefined, true)}
+          onDownloadAllCovers={() => cover.handleDownloadAllCovers(track_list, album_info.name, true)}
           onDownloadAll={() => download.handleDownloadAll(track_list, undefined, true)}
           onDownloadSelected={() =>
             download.handleDownloadSelected(selectedTracks, track_list, undefined, true)
@@ -547,6 +548,8 @@ function App() {
         return <AudioConverterPage />;
       case "file-manager":
         return <FileManagerPage />;
+      case "csv-import":
+        return null; // Rendered separately to keep mounted
       default:
         return (
           <>
@@ -684,11 +687,16 @@ function App() {
       <div className="min-h-screen bg-background flex flex-col">
         <TitleBar />
         <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
-        
+
         {/* Main content area with sidebar offset */}
         <div className="flex-1 ml-14 mt-10 p-4 md:p-8">
           <div className="max-w-4xl mx-auto space-y-6">
-            {renderPage()}
+            {/* Keep CSV Import Page mounted to preserve download state */}
+            <div style={{ display: currentPage === "csv-import" ? "block" : "none" }}>
+              <CSVImportPage onDownloadTrack={download.handleDownloadTrack} />
+            </div>
+            {/* Render other pages normally */}
+            {currentPage !== "csv-import" && renderPage()}
           </div>
         </div>
 

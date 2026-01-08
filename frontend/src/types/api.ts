@@ -247,3 +247,51 @@ export interface AudioMetadata {
   disc_number: number;
   year: string;
 }
+
+export interface CSVTrack {
+  track_uri: string;
+  track_name: string;
+  album_name: string;
+  artist_name: string;
+  release_date: string;
+  duration_ms: number;
+  popularity: number;
+  explicit: boolean;
+  spotify_id: string;
+}
+
+export interface CSVParseResult {
+  success: boolean;
+  track_count: number;
+  tracks: CSVTrack[];
+  error?: string;
+}
+
+export interface CSVBatchDownloadRequest {
+  csv_file_path: string;
+  output_dir: string;
+}
+
+export interface CSVBatchDownloadResponse {
+  success: boolean;
+  message: string;
+  total_tracks: number;
+  queued_tracks: number;
+  skipped_tracks: number;
+  error?: string;
+}
+
+export interface CheckTrackExistsRequest {
+  track_name: string;
+  artist_name: string;
+  album_name?: string;
+  output_dir: string;
+  filename_format?: string;
+  track_number?: boolean;
+  position?: number;
+}
+
+export interface CheckTrackExistsResponse {
+  exists: boolean;
+  file_path?: string;
+}

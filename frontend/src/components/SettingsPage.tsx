@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { FolderOpen, Save, RotateCcw, Info } from "lucide-react";
+import { FolderOpen, Save, RotateCcw, Info, Database, CheckCircle2, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, FONT_OPTIONS, FOLDER_PRESETS, FILENAME_PRESETS, TEMPLATE_VARIABLES, type Settings as SettingsType, type FontFamily, type FolderPreset, type FilenamePreset } from "@/lib/settings";
 import { themes, applyTheme } from "@/lib/themes";
-import { SelectFolder } from "../../wailsjs/go/main/App";
+import { SelectFolder, SelectDatabaseFile, TestDatabaseConnection, VerifyLibraryCompleteness } from "../../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 
 // Service Icons
@@ -53,6 +53,14 @@ export function SettingsPage() {
   const [tempSettings, setTempSettings] = useState<SettingsType>(savedSettings);
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'));
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  
+  // Library verification states
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [checkCovers, setCheckCovers] = useState(true);
+  const [checkLyrics, setCheckLyrics] = useState(false);
 
   useEffect(() => {
     applyThemeMode(savedSettings.themeMode);
@@ -121,6 +129,121 @@ export function SettingsPage() {
     }
   };
 
+  const handleBrowseDatabaseFile = async () => {
+    try {
+      const selectedPath = await SelectDatabaseFile();
+      if (selectedPath && selectedPath.trim() !== "") {
+        setTempSettings((prev) => ({ ...prev, databasePath: selectedPath }));
+      }
+    } catch (error) {
+      console.error("Error selecting database file:", error);
+      toast.error(`Error selecting database file: ${error}`);
+    }
+  };
+
+  const handleTestDatabase = async () => {
+    if (!tempSettings.databasePath) {
+      toast.error("Please select a database file first");
+      return;
+    }
+
+    try {
+      const result = await TestDatabaseConnection(tempSettings.databasePath);
+      toast.success(result);
+    } catch (error) {
+      toast.error(`Database connection failed: ${error}`);
+    }
+  };
+
+  const handleVerifyLibrary = async () => {
+    if (!tempSettings.downloadPath) {
+      toast.error("Please set a download path first");
+      return;
+    }
+
+    setIsVerifying(true);
+    setVerificationResult(null);
+
+    try {
+      const result = await VerifyLibraryCompleteness({
+        scan_path: tempSettings.downloadPath,
+        check_covers: checkCovers,
+        check_lyrics: checkLyrics,
+        download_missing: false, // For now, just scan
+        database_path: tempSettings.databasePath || "",
+      });
+
+      setVerificationResult(result);
+
+      if (result.success) {
+        const issues = [];
+        if (checkCovers && result.missing_covers > 0) {
+          issues.push(`${result.missing_covers} missing covers`);
+        }
+        if (checkLyrics && result.missing_lyrics > 0) {
+          issues.push(`${result.missing_lyrics} missing lyrics`);
+        }
+
+        if (issues.length === 0) {
+          toast.success("Library is complete! All tracks have the required files.");
+        } else {
+          toast.warning(`Found issues: ${issues.join(", ")}`);
+        }
+      } else {
+        toast.error(`Verification failed: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("Error verifying library:", error);
+      toast.error(`Error verifying library: ${error}`);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleDownloadMissingItems = async () => {
+    if (!tempSettings.downloadPath) {
+      toast.error("Please set a download path first");
+      return;
+    }
+
+    setIsDownloading(true);
+
+    try {
+      const result = await VerifyLibraryCompleteness({
+        scan_path: tempSettings.downloadPath,
+        check_covers: checkCovers,
+        check_lyrics: checkLyrics,
+        download_missing: true, // Enable download mode
+        database_path: tempSettings.databasePath || "",
+      });
+
+      setVerificationResult(result);
+
+      if (result.success) {
+        const downloaded = [];
+        if (checkCovers && result.covers_downloaded > 0) {
+          downloaded.push(`${result.covers_downloaded} covers`);
+        }
+        if (checkLyrics && result.lyrics_downloaded > 0) {
+          downloaded.push(`${result.lyrics_downloaded} lyrics`);
+        }
+
+        if (downloaded.length > 0) {
+          toast.success(`Downloaded ${downloaded.join(" and ")}!`);
+        } else {
+          toast.info("No items needed to be downloaded.");
+        }
+      } else {
+        toast.error(`Download failed: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("Error downloading missing items:", error);
+      toast.error(`Error downloading missing items: ${error}`);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Settings</h1>
@@ -143,6 +266,46 @@ export function SettingsPage() {
                 Browse
               </Button>
             </div>
+          </div>
+
+          {/* Database Path */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="database-path">Database Path</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p className="text-xs max-w-xs">
+                    Optional: Point to a local SQLite database file (.db/.sqlite) with track ISRCs.
+                    If configured, the app will query this database first before falling back to Spotify API.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex gap-2">
+              <InputWithContext
+                id="database-path"
+                value={tempSettings.databasePath}
+                onChange={(e) => setTempSettings((prev) => ({ ...prev, databasePath: e.target.value }))}
+                placeholder="C:\Music\spotify_clean.db (optional)"
+              />
+              <Button type="button" onClick={handleBrowseDatabaseFile} className="gap-1.5">
+                <Database className="h-4 w-4" />
+                Browse
+              </Button>
+              {tempSettings.databasePath && (
+                <Button type="button" variant="outline" onClick={handleTestDatabase} className="gap-1.5">
+                  Test
+                </Button>
+              )}
+            </div>
+            {tempSettings.databasePath && (
+              <p className="text-xs text-muted-foreground">
+                Database configured - will be queried before Spotify API
+              </p>
+            )}
           </div>
 
           {/* Theme Mode */}
@@ -302,6 +465,36 @@ export function SettingsPage() {
             </div>
           </div>
 
+          {/* Parallel Downloads */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Label htmlFor="enable-parallel-downloads" className="cursor-pointer text-sm">Enable Parallel Downloads</Label>
+              <Switch
+                id="enable-parallel-downloads"
+                checked={tempSettings.enableParallelDownloads}
+                onCheckedChange={(checked) => setTempSettings(prev => ({ ...prev, enableParallelDownloads: checked }))}
+              />
+            </div>
+            {tempSettings.enableParallelDownloads && (
+              <div className="space-y-2 pl-4">
+                <Label htmlFor="concurrent-downloads" className="text-sm">Concurrent Downloads: {tempSettings.concurrentDownloads}</Label>
+                <input
+                  id="concurrent-downloads"
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={tempSettings.concurrentDownloads}
+                  onChange={(e) => setTempSettings(prev => ({ ...prev, concurrentDownloads: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>1</span>
+                  <span>10</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="border-t" />
 
           {/* Folder Structure */}
@@ -406,6 +599,131 @@ export function SettingsPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Advanced Tools Section */}
+      <div className="space-y-3">
+        <button
+          onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {showAdvancedTools ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          Advanced Tools
+        </button>
+
+        {showAdvancedTools && (
+          <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
+            <div>
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Library Completeness Checker
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Scan your library to verify that all tracks have cover art and lyrics (optional).
+                Useful before organizing or moving your music collection.
+              </p>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={checkCovers}
+                      onCheckedChange={setCheckCovers}
+                      id="check-covers"
+                    />
+                    <Label htmlFor="check-covers" className="text-sm cursor-pointer">
+                      Check for covers
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={checkLyrics}
+                      onCheckedChange={setCheckLyrics}
+                      id="check-lyrics"
+                    />
+                    <Label htmlFor="check-lyrics" className="text-sm cursor-pointer">
+                      Check for lyrics
+                    </Label>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleVerifyLibrary}
+                  disabled={isVerifying || isDownloading || (!checkCovers && !checkLyrics)}
+                  className="w-full"
+                >
+                  {isVerifying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Scanning Library...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      Verify Library Completeness
+                    </>
+                  )}
+                </Button>
+
+                {verificationResult && verificationResult.success && (
+                  <div className="mt-4 p-4 border rounded-lg bg-background space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">Total Tracks:</span>
+                      <span>{verificationResult.total_tracks}</span>
+                    </div>
+                    {checkCovers && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-green-600 dark:text-green-400">With Cover:</span>
+                          <span>{verificationResult.tracks_with_cover}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-red-600 dark:text-red-400">Missing Cover:</span>
+                          <span>{verificationResult.missing_covers}</span>
+                        </div>
+                      </>
+                    )}
+                    {checkLyrics && (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-green-600 dark:text-green-400">With Lyrics:</span>
+                          <span>{verificationResult.tracks_with_lyrics}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-red-600 dark:text-red-400">Missing Lyrics:</span>
+                          <span>{verificationResult.missing_lyrics}</span>
+                        </div>
+                      </>
+                    )}
+                    
+                    {/* Show download button if there are missing items */}
+                    {((checkCovers && verificationResult.missing_covers > 0) || 
+                      (checkLyrics && verificationResult.missing_lyrics > 0)) && (
+                      <Button
+                        onClick={handleDownloadMissingItems}
+                        disabled={isDownloading}
+                        variant="default"
+                        className="w-full mt-3"
+                      >
+                        {isDownloading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Downloading Missing Items...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                            Download Missing Items
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
