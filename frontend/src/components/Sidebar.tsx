@@ -7,10 +7,11 @@ import { FileMusicIcon } from "@/components/ui/file-music";
 import { FilePenIcon } from "@/components/ui/file-pen";
 import { CoffeeIcon } from "@/components/ui/coffee";
 import { BadgeAlertIcon } from "@/components/ui/badge-alert";
+import { FileText } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/utils";
-export type PageType = "main" | "settings" | "debug" | "audio-analysis" | "audio-converter" | "file-manager" | "about" | "history";
+export type PageType = "main" | "settings" | "debug" | "audio-analysis" | "audio-converter" | "file-manager" | "about" | "history" | "csv-import";
 interface SidebarProps {
     currentPage: PageType;
     onPageChange: (page: PageType) => void;
@@ -71,6 +72,17 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         </TooltipTrigger>
         <TooltipContent side="right">
           <p>File Manager</p>
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip delayDuration={0}>
+        <TooltipTrigger asChild>
+          <Button variant={currentPage === "csv-import" ? "secondary" : "ghost"} size="icon" className={`h-10 w-10 ${currentPage === "csv-import" ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`} onClick={() => onPageChange("csv-import")}>
+            <FileText size={20}/>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>CSV Import</p>
         </TooltipContent>
       </Tooltip>
 

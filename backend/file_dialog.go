@@ -48,7 +48,6 @@ func SelectOutputDirectory(ctx context.Context) (string, error) {
 	return dir, nil
 }
 
-
 func SelectCSVFilesDialog(ctx context.Context) ([]string, error) {
 	files, err := runtime.OpenMultipleFilesDialog(ctx, runtime.OpenDialogOptions{
 		Title: "Select CSV Files",
@@ -68,14 +67,3 @@ func SelectCSVFilesDialog(ctx context.Context) ([]string, error) {
 	}
 	return files, nil
 }
-
-func SelectFileDialog(ctx context.Context) (string, error) {
-	file, err := runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Select File",
-	})
-	if err != nil {
-		return "", err
-	}
-	return file, nil
-}
-

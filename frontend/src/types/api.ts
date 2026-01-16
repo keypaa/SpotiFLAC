@@ -272,3 +272,22 @@ export interface AudioMetadata {
     disc_number: number;
     year: string;
 }
+
+export interface CSVTrack {
+    track_uri: string;
+    track_name: string;
+    album_name: string;
+    artist_name: string;
+    release_date: string;
+    duration_ms: number;
+    popularity: number;
+    explicit: boolean;
+    spotify_id: string;
+}
+
+export interface BatchCSVParseResult {
+    success: boolean;
+    tracks: CSVTrack[];
+    track_count: number;
+    error?: string;
+}
