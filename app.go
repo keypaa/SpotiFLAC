@@ -547,6 +547,21 @@ func (a *App) SelectFile() (string, error) {
 	return backend.SelectFileDialog(a.ctx)
 }
 
+// ParseCSVPlaylist parses a Spotify CSV playlist file
+func (a *App) ParseCSVPlaylist(filePath string) ([]backend.CSVTrack, error) {
+	return backend.ParseCSVPlaylist(filePath)
+}
+
+// ParseMultipleCSVFiles parses multiple CSV files in parallel
+func (a *App) ParseMultipleCSVFiles(filePaths []string) backend.BatchCSVParseResult {
+	return backend.ParseMultipleCSVFiles(filePaths)
+}
+
+// SelectCSVFiles opens a file dialog to select CSV files
+func (a *App) SelectCSVFiles() ([]string, error) {
+	return backend.SelectCSVFilesDialog(a.ctx)
+}
+
 func (a *App) GetDefaults() map[string]string {
 	return map[string]string{
 		"downloadPath": backend.GetDefaultMusicPath(),
