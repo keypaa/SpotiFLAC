@@ -67,6 +67,9 @@ function App() {
     const [isInstallingFFmpeg, setIsInstallingFFmpeg] = useState(false);
     const [ffmpegInstallProgress, setFfmpegInstallProgress] = useState(0);
     const [ffmpegInstallStatus, setFfmpegInstallStatus] = useState("");
+    const [csvTracks, setCSVTracks] = useState<any[]>([]);
+    const [csvFilePath, setCSVFilePath] = useState("");
+    const [csvPlaylistName, setCSVPlaylistName] = useState("");
     useLayoutEffect(() => {
         const savedSettings = getSettings();
         if (savedSettings) {
@@ -409,7 +412,17 @@ function App() {
             case "file-manager":
                 return <FileManagerPage />;
             case "csv-import":
-                return <CSVImportPage onDownloadTrack={download.handleDownloadTrack} />;
+                return <CSVImportPage 
+                    tracks={csvTracks}
+                    setTracks={setCSVTracks}
+                    csvFilePath={csvFilePath}
+                    setCSVFilePath={setCSVFilePath}
+                    playlistName={csvPlaylistName}
+                    setPlaylistName={setCSVPlaylistName}
+                    onDownloadTrack={download.handleDownloadTrack}
+                    onDownloadCover={cover.handleDownloadCover}
+                    onDownloadLyrics={lyrics.handleDownloadLyrics}
+                />;
             default:
                 return (<>
                     <Header version={CURRENT_VERSION} hasUpdate={hasUpdate} releaseDate={releaseDate}/>

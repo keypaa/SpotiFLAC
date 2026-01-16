@@ -1,27 +1,52 @@
 ﻿import { useState, useCallback } from "react";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Upload, FileText, Download, Loader2 } from "lucide-react";
+import { Checkbox } from "./ui/checkbox";
+import { Label } from "./ui/label";
+import { Upload, FileText, Download, Loader2, Image as ImageIcon, FileText as LyricsIcon } from "lucide-react";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
 import type { CSVTrack } from "@/types/api";
-import { SelectCSVFiles, ParseCSVPlaylist } from "../../wailsjs/go/main/App";
+import { SelectCSVFiles, ParseCSVPlaylist, GetSpotifyMetadata } from "../../wailsjs/go/main/App";
 
 interface CSVImportPageProps {
+  tracks: CSVTrack[];
+  setTracks: (tracks: CSVTrack[]) => void;
+  csvFilePath: string;
+  setCSVFilePath: (path: string) => void;
+  playlistName: string;
+  setPlaylistName: (name: string) => void;
   onDownloadTrack: (
     isrc: string,
     name: string,
     artists: string,
     albumName: string,
-    spotifyId?: string
+    spotifyId?: string,
+    playlistName?: string,
+    durationMs?: number,
+    position?: number,
+    albumArtist?: string,
+    releaseDate?: string,
+    coverUrl?: string
   ) => void;
+  onDownloadCover: (coverUrl: string, trackName: string, artistName: string, albumName?: string) => void;
+  onDownloadLyrics: (spotifyId: string, trackName: string, artistName: string, albumName?: string) => void;
 }
 
-export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
-  const [tracks, setTracks] = useState<CSVTrack[]>([]);
+export function CSVImportPage({ 
+  tracks, 
+  setTracks, 
+  csvFilePath, 
+  setCSVFilePath,
+  playlistName,
+  setPlaylistName,
+  onDownloadTrack,
+  onDownloadCover,
+  onDownloadLyrics
+}: CSVImportPageProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [csvFilePath, setCSVFilePath] = useState("");
-  const [playlistName, setPlaylistName] = useState("");
+  const [downloadCovers, setDownloadCovers] = useState(true);
+  const [downloadLyrics, setDownloadLyrics] = useState(true);
 
   const parseCSV = useCallback(async (filePath: string) => {
     setIsLoading(true);
@@ -60,7 +85,7 @@ export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
     }
   }, [parseCSV]);
 
-  const handleDownloadTrack = useCallback((track: CSVTrack) => {
+  const handleDownloadTrack = useCallback(async (track: CSVTrack, index: number) => {
     try {
       if (!track.spotify_id) {
         toast.error(`Track "${track.track_name}" has no Spotify ID`);
@@ -69,21 +94,59 @@ export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
 
       logger.info(`[CSV] Downloading track: ${track.track_name} by ${track.artist_name}`);
 
-      // Use Spotify ID to download - the backend will handle ISRC lookup
+      // Fetch metadata for additional info
+      let coverUrl = "";
+      try {
+        const metadataJson = await GetSpotifyMetadata({
+          url: `https://open.spotify.com/track/${track.spotify_id}`,
+          batch: false,
+          delay: 0,
+          timeout: 30,
+        });
+        const metadata = JSON.parse(metadataJson);
+        if (metadata.track?.images) {
+          const images = metadata.track.images;
+          coverUrl = Array.isArray(images) && images.length > 0 ? (images[0].url || images[0]) : images;
+        }
+      } catch (err) {
+        logger.warning(`[CSV] Failed to fetch metadata for ${track.track_name}: ${err}`);
+      }
+
+      // Download track with playlist folder
       onDownloadTrack(
-        track.spotify_id,  // Use spotify_id as the identifier
+        track.spotify_id,
         track.track_name,
         track.artist_name,
         track.album_name || "",
-        track.spotify_id
+        track.spotify_id,
+        playlistName, // Use playlist name as subfolder
+        track.duration_ms,
+        index + 1,
+        track.artist_name,
+        track.release_date,
+        coverUrl
       );
+
+      // Download cover if enabled
+      if (downloadCovers && coverUrl) {
+        setTimeout(() => {
+          onDownloadCover(coverUrl, track.track_name, track.artist_name, track.album_name);
+        }, 100);
+      }
+
+      // Download lyrics if enabled
+      if (downloadLyrics) {
+        setTimeout(() => {
+          onDownloadLyrics(track.spotify_id, track.track_name, track.artist_name, track.album_name);
+        }, 200);
+      }
       
       toast.success(`Added "${track.track_name}" to download queue`);
     } catch (err) {
       logger.error(`[CSV] Failed to download track ${track.track_name}: ${err}`);
       toast.error(`Failed to download "${track.track_name}"`);
     }
-  }, [onDownloadTrack]);
+  }, [onDownloadTrack, onDownloadCover, onDownloadLyrics, playlistName, downloadCovers, downloadLyrics]);
 
   const handleDownloadAll = useCallback(async () => {
     if (tracks.length === 0) {
@@ -93,9 +156,9 @@ export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
 
     toast.info(`Adding ${tracks.length} tracks to download queue...`);
     
-    for (const track of tracks) {
-      handleDownloadTrack(track);
-      await new Promise(resolve => setTimeout(resolve, 100));
+    for (let i = 0; i < tracks.length; i++) {
+      await handleDownloadTrack(tracks[i], i);
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
 
     toast.success(`All ${tracks.length} tracks added to download queue`);
@@ -144,6 +207,31 @@ export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
                 <span className="text-sm flex-1 truncate">{csvFilePath}</span>
               </div>
             )}
+
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="download-covers" 
+                  checked={downloadCovers}
+                  onCheckedChange={(checked) => setDownloadCovers(checked as boolean)}
+                />
+                <Label htmlFor="download-covers" className="flex items-center gap-2 cursor-pointer">
+                  <ImageIcon className="h-4 w-4" />
+                  Download covers
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="download-lyrics" 
+                  checked={downloadLyrics}
+                  onCheckedChange={(checked) => setDownloadLyrics(checked as boolean)}
+                />
+                <Label htmlFor="download-lyrics" className="flex items-center gap-2 cursor-pointer">
+                  <LyricsIcon className="h-4 w-4" />
+                  Download lyrics
+                </Label>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -180,7 +268,7 @@ export function CSVImportPage({ onDownloadTrack }: CSVImportPageProps) {
                     </div>
                     <Button
                       size="sm"
-                      onClick={() => handleDownloadTrack(track)}
+                      onClick={() => handleDownloadTrack(track, index)}
                       disabled={!track.spotify_id}
                     >
                       <Download className="h-4 w-4" />
